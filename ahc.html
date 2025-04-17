@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AHC Clustering Visualization</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        input[type='number'] {
+            width: 50px;
+        }
+        .matrix, .log {
+            margin-top: 20px;
+        }
+        .cluster-step {
+            background-color: #f9f9f9;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>AHC </h1>
+    <p>Nhập số đối tượng:</p>
+    <input type="number" id="numPoints" min="2" value="5">
+    <button onclick="createInputTable()">Tạo bảng nhập</button>
+
+    <form id="inputForm"></form>
+    <button onclick="runAHC()">Thực hiện AHC</button>
+
+    <div class="log" id="logSteps"></div>
+
+    <script>
+        function createInputTable() {
+            const num = parseInt(document.getElementById('numPoints').value);
+            const form = document.getElementById('inputForm');
+            form.innerHTML = '<table border="1"><tr><th>Đối tượng</th><th>X1</th><th>X2</th></tr>';
+            for (let i = 0; i < num; i++) {
+                form.innerHTML += `<tr><td>${String.fromCharCode(65+i)}</td>
+                    <td><input type='number' step='any' name='x1_${i}' required></td>
+                    <td><input type='number' step='any' name='x2_${i}' required></td></tr>`;
+            }
+            form.innerHTML += '</table>';
+        }
+
+        function calcDistance(p1, p2) {
+            return Math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2);
+        }
+
+        function runAHC() {
+            const form = document.getElementById('inputForm');
+            const formData = new FormData(form);
+            const num = parseInt(document.getElementById('numPoints').value);
+            const points = [];
+            for (let i = 0; i < num; i++) {
+                points.push([
+                    parseFloat(formData.get(`x1_${i}`)),
+                    parseFloat(formData.get(`x2_${i}`))
+                ]);
+            }
+
+            const labels = Array.from({length: num}, (_, i) => String.fromCharCode(65 + i));
+            let clusters = labels.map((l, i) => ({label: l, points: [i]}));
+            const log = document.getElementById('logSteps');
+            log.innerHTML = '';
+
+            const distanceMatrix = Array(num).fill().map(() => Array(num).fill(0));
+            for (let i = 0; i < num; i++) {
+                for (let j = i + 1; j < num; j++) {
+                    const d = calcDistance(points[i], points[j]);
+                    distanceMatrix[i][j] = d;
+                    distanceMatrix[j][i] = d;
+                }
+            }
+
+            function displayMatrix(matrix, clustLabels) {
+                let html = '<table border="1"><tr><th></th>' + clustLabels.map(l => `<th>${l}</th>`).join('') + '</tr>';
+                matrix.forEach((row, i) => {
+                    html += `<tr><th>${clustLabels[i]}</th>` + row.map(val => `<td>${val.toFixed(2)}</td>`).join('') + '</tr>';
+                });
+                html += '</table>';
+                return html;
+            }
+
+            let matrix = distanceMatrix;
+            let clustLabels = clusters.map(c => c.label);
+            let step = 1;
+
+            while (clusters.length > 1) {
+                let minDist = Infinity;
+                let mergeIdx = [-1, -1];
+
+                for (let i = 0; i < matrix.length; i++) {
+                    for (let j = i + 1; j < matrix.length; j++) {
+                        if (matrix[i][j] < minDist) {
+                            minDist = matrix[i][j];
+                            mergeIdx = [i, j];
+                        }
+                    }
+                }
+
+                const [i, j] = mergeIdx;
+                const newLabel = clustLabels[i] + clustLabels[j];
+
+                log.innerHTML += `<div class='cluster-step'><b>Bước ${step}:</b> Nhóm ${clustLabels[i]} và ${clustLabels[j]} với khoảng cách ${minDist.toFixed(2)}<br>`;
+                step++;
+
+                // Gộp cluster mới
+                const newCluster = {
+                    label: newLabel,
+                    points: [...clusters[i].points, ...clusters[j].points]
+                };
+
+                // Tính lại ma trận khoảng cách theo khoảng cách đơn (minimum)
+                const newMatrix = [];
+                const newLabels = [];
+                const newClusters = [];
+
+                for (let k = 0; k < clusters.length; k++) {
+                    if (k !== i && k !== j) {
+                        const dist = Math.min(matrix[i][k], matrix[j][k]);
+                        newMatrix.push(dist);
+                    }
+                }
+
+                const updatedMatrix = [];
+                for (let a = 0, m = 0; a < clusters.length; a++) {
+                    if (a === i || a === j) continue;
+                    const row = [];
+                    for (let b = 0, n = 0; b < clusters.length; b++) {
+                        if (b === i || b === j) continue;
+                        row.push(matrix[a][b]);
+                        n++;
+                    }
+                    row.push(newMatrix[m]);
+                    updatedMatrix.push(row);
+                    m++;
+                }
+
+                // Add final row and column for merged cluster
+                const lastRow = [...newMatrix, 0];
+                updatedMatrix.push(lastRow);
+
+                // Update clusters and labels
+                clusters = clusters.filter((_, idx) => idx !== i && idx !== j);
+                clusters.push(newCluster);
+
+                clustLabels = clustLabels.filter((_, idx) => idx !== i && idx !== j);
+                clustLabels.push(newLabel);
+
+                matrix = updatedMatrix;
+                log.innerHTML += displayMatrix(matrix, clustLabels) + '</div>';
+            }
+        }
+    </script>
+</body>
+</html>
